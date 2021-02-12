@@ -99,8 +99,7 @@ class Latents(torch.nn.Module):
         self.cls = torch.nn.Parameter(torch.zeros(num_latents, 1000).normal_(mean=-3.9, std=.3))
         self.register_buffer('thresh_lat', torch.tensor(1))
 
-        assert not exists(
-            max_classes) or max_classes > 0 and max_classes <= 1000, 'num classes must be between 0 and 1000'
+        assert not exists(max_classes) or max_classes > 0 and max_classes <= 1000, 'num classes must be between 0 and 1000'
         self.max_classes = max_classes
         self.class_temperature = class_temperature
 
@@ -165,26 +164,23 @@ class BigSleep(nn.Module):
             image_size=image_size,
             max_classes=max_classes,
             class_temperature=class_temperature
-        )
+        ).cuda()
 
     def reset(self):
         self.model.init_latents()
 
-    def forward(self, max_text_tokenized: [], min_text_tokenized: [], return_loss=True):
+    def forward(self, max_text_tokenized, min_text_tokenized: str = None, return_loss=True):
         width, num_cutouts = self.image_size, self.num_cutouts
-
         out = self.model()
-
         if not return_loss:
             return out
-
         pieces = []
         for ch in range(num_cutouts):
-            size = int(width * torch.zeros(1, ).normal_(mean=.8, std=.3).clip(.5, .95))
+            size = int(width * torch.zeros(1).normal_(mean=.8, std=.3).clip(.5, .95))
             offsetx = torch.randint(0, width - size, ())
             offsety = torch.randint(0, width - size, ())
             apper = out[:, :, offsetx:offsetx + size, offsety:offsety + size]
-            if (self.experimental_resample):
+            if self.experimental_resample:
                 apper = resample(apper, (224, 224))
             else:
                 apper = F.interpolate(apper, (224, 224), **self.interpolation_settings)
@@ -194,51 +190,36 @@ class BigSleep(nn.Module):
         into = normalize_image(into)
 
         image_embed = perceptor.encode_image(into)
-        text_embeds = []
-        for tokenized in max_text_tokenized:
-            text_embed = perceptor.encode_text(tokenized.cuda()).detach().clone()
-            text_embeds.append(text_embed)
-        if min_text_tokenized is not None:
-            min_text_embeds = []
-            for tokenized in min_text_tokenized:
-                text_embed = perceptor.encode_text(tokenized.cuda()).detach().clone()
-                min_text_embeds.append(text_embed)
+        for phrase in max_text_tokenized:
+            current_embed = perceptor.encode_text(phrase.cuda())
+            phrase_loss = self.loss_coef * torch.cosine_similarity(current_embed, image_embed, dim=-1).mean()
+            phrases_loss.append(phrase_loss)
+        total_phrase_loss = torch.sum(phrases_loss)
+        return total_phrase_loss
 
-        latents, soft_one_hot_classes = self.model.latents()
-        num_latents = latents.shape[0]
-        latent_thres = self.model.latents.thresh_lat
 
-        latent_loss = torch.abs(1 - torch.std(latents, dim=1)).mean() + \
-                      torch.abs(torch.mean(latents)).mean() + \
-                      4 * torch.max(torch.square(latents).mean(), latent_thres)
-
-        for latent_arr in latents:
-            mean = torch.mean(latent_arr)
-            diffs = latent_arr - mean
-            var = torch.mean(torch.pow(diffs, 2.0))
-            std = torch.pow(var, 0.5)
-            zscores = diffs / std
-            skews = torch.mean(torch.pow(zscores, 3.0))
-            kurtoses = torch.mean(torch.pow(zscores, 4.0)) - 3.0
-
-        latent_loss = latent_loss + torch.abs(kurtoses) / num_latents + torch.abs(skews) / num_latents
-        cls_loss = ((50 * torch.topk(soft_one_hot_classes, largest=False, dim=1, k=999)[0]) ** 2).mean()
-
-        results = []
-        for text_embed in text_embeds:
-            results.append(self.loss_coef * torch.cosine_similarity(text_embed, image_embed, dim=-1).mean())
-        if min_text_embeds is not None:
-            for text_embed in min_text_embeds:
-                results.append(-self.loss_coef * torch.cosine_similarity(text_embed, image_embed, dim=-1).mean())
-        results = sum(results)
-        return latent_loss, cls_loss, results
+def split_and_tokenize_texts(max_phrases: str, min_phrases: str = None):  # Tokenize phrase/s, delimited by a single `\`
+    max_tokenized = []
+    if "\\" in max_phrases:
+        for prompt in max_phrases.split("\\"):
+            if exists(prompt):
+                max_tokenized.append(tokenize(f'''{prompt}'''))
+        return max_tokenized, None  # todo CHANGE ME
+    return tokenize(f'''{max_phrases}'''), None  # TODO change me
+    #TODO put this back
+    # if exists(min_phrases):
+    #     min_tokenized = []
+    #     for prompt in min_phrases.split("\\"):
+    #         if exists(prompt):
+    #             min_tokenized.append(tokenize(f'''{prompt}'''))
+    #     return max_tokenized, min_tokenized
 
 
 class Imagine(nn.Module):
     def __init__(
             self,
             text,
-            penalty_text,
+            penalty_text: str = None,
             *,
             lr=.07,
             image_size=512,
@@ -297,7 +278,7 @@ class Imagine(nn.Module):
         self.open_folder = open_folder
         self.total_image_updates = (self.epochs * self.iterations) / self.save_every
 
-        text_max_tokenized, text_min_tokenized = self.split_and_tokenize_texts(text, penalty_text)
+        text_max_tokenized, text_min_tokenized = split_and_tokenize_texts(text, penalty_text)
         self.set_text(text)
         self.text_min_tokenized = text_min_tokenized
         self.text_max_tokenized = text_max_tokenized
@@ -311,23 +292,7 @@ class Imagine(nn.Module):
         self.textpath = textpath
         self.filename = Path(f'./{textpath}.png')
         #  TODO allow user to set both max and min here
-        self.text_max_tokenized, _ = self.split_and_tokenize_texts(text)
-
-    def split_and_tokenize_texts(self, text_to_max: str, text_to_min: str = None):
-        texts_to_max_tokenized = []
-        if "\\" in text_to_max:
-            for prompt in text_to_max.split("\\"):
-                texts_to_max_tokenized.append(tokenize(f'''{prompt}'''))
-        else:
-            texts_to_max_tokenized = tokenize(text_to_max)
-        texts_to_min_tokenized = []
-        if text_to_min is not None:
-            if "\\" in text_to_max:
-                for prompt in text_to_min.split("\\"):
-                    texts_to_min_tokenized.append(tokenize(f'''{prompt}'''))
-            else:
-                texts_to_max_tokenized = tokenize(text_to_min)
-        return texts_to_max_tokenized, texts_to_min_tokenized
+        self.text_max_tokenized, _ = split_and_tokenize_texts(text)
 
     def reset(self):
         self.model.reset()
@@ -335,46 +300,23 @@ class Imagine(nn.Module):
         self.optimizer = Adam(self.model.model.latents.parameters(), self.lr)
 
     def train_step(self, epoch, i, pbar=None):
+        print(f"{epoch: {epoch}, i: {i}}")
         total_loss = 0
-
-        for _ in range(self.gradient_accumulate_every):
-            if self.text_min_tokenized is None:
-                losses = self.model(self.text_max_tokenized)
-            else:
-                losses = self.model(self.text_max_tokenized, self.text_min_tokenized)
-            loss = sum(losses) / self.gradient_accumulate_every
-            total_loss += loss
-            loss.backward()
-
+        losses = []
+        for loss in self.model(self.text_max_tokenized, self.text_min_tokenized):
+            print(loss)
+            losses.append(loss)
+        loss = losses / self.gradient_accumulate_every
+        total_loss += loss
+        loss.backward()
         self.optimizer.step()
         self.optimizer.zero_grad()
-
-        if (i + 1) % self.save_every == 0:
-            with torch.no_grad():
-                top_score, best = torch.topk(losses[2], k=1, largest=False)
-                image = self.model.model()[best].cpu()
-
-                save_image(image, str(self.filename))
-                if pbar is not None:
-                    pbar.update(1)
-                else:
-                    print(f'image updated at "./{str(self.filename)}"')
-
-                if self.save_progress:
-                    total_iterations = epoch * self.iterations + i
-                    num = total_iterations // self.save_every
-                    save_image(image, Path(f'./{self.textpath}.{num}.png'))
-
-                if self.save_best and top_score.item() < self.current_best_score:
-                    self.current_best_score = top_score.item()
-                    save_image(image, Path(f'./{self.textpath}.best.png'))
-
         return total_loss
 
     def forward(self):
         print(f'Imagining "{self.text}" from the depths of my weights...')
 
-        self.model(self.text_max_tokenized, self.text_min_tokenized)  # one warmup step due to issue with CLIP and CUDA
+        self.model(self.text)  # one warmup step due to issue with CLIP and CUDA
 
         if self.open_folder:
             open_folder('./')

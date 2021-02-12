@@ -8,6 +8,7 @@ from .version import __version__;
 
 def train(
         text,
+        penalty_text: str = None,
         lr=.07,
         image_size=512,
         gradient_accumulate_every=1,
@@ -22,7 +23,7 @@ def train(
         seed=0,
         random=False,
         torch_deterministic=False,
-        max_classes=None,
+        max_classes: int = None,
         class_temperature=2.,
         save_best=False,
         experimental_resample=False,
@@ -34,6 +35,7 @@ def train(
 
     imagine = Imagine(
         text,
+        penalty_text=penalty_text,
         lr=lr,
         image_size=image_size,
         gradient_accumulate_every=gradient_accumulate_every,
