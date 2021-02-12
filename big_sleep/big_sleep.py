@@ -239,8 +239,7 @@ class Imagine(nn.Module):
         if exists(seed):
             print(f'setting seed of {seed}')
             if seed == 0:
-                print(
-                    'you can override this with --seed argument in the command line, or --random for a randomly chosen one')
+                print('you can override this with --seed argument in the command line, or --random for a randomly chosen one')
             torch.manual_seed(seed)
 
         self.epochs = epochs
