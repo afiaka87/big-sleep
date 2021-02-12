@@ -8,12 +8,12 @@ from torch.nn import functional as F
 
 
 def sinc(x):
-    return torch.where(x != 0,  torch.sin(math.pi * x) / (math.pi * x), x.new_ones([]))
+    return torch.where(x != 0, torch.sin(math.pi * x) / (math.pi * x), x.new_ones([]))
 
 
 def lanczos(x, a):
     cond = torch.logical_and(-a < x, x < a)
-    out = torch.where(cond, sinc(x) * sinc(x/a), x.new_zeros([]))
+    out = torch.where(cond, sinc(x) * sinc(x / a), x.new_zeros([]))
     return out / out.sum()
 
 
@@ -34,14 +34,14 @@ def odd(fn):
 def _to_linear_srgb(input):
     cond = input <= 0.04045
     a = input / 12.92
-    b = ((input + 0.055) / 1.055)**2.4
+    b = ((input + 0.055) / 1.055) ** 2.4
     return torch.where(cond, a, b)
 
 
 def _to_nonlinear_srgb(input):
     cond = input <= 0.0031308
     a = 12.92 * input
-    b = 1.055 * input**(1/2.4) - 0.055
+    b = 1.055 * input ** (1 / 2.4) - 0.055
     return torch.where(cond, a, b)
 
 

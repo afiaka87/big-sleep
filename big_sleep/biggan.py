@@ -28,14 +28,14 @@ except ImportError:
 
 try:
     from pathlib import Path
+
     PYTORCH_PRETRAINED_BIGGAN_CACHE = Path(os.getenv('PYTORCH_PRETRAINED_BIGGAN_CACHE',
-                                                   Path.home() / '.pytorch_pretrained_biggan'))
+                                                     Path.home() / '.pytorch_pretrained_biggan'))
 except (AttributeError, ImportError):
     PYTORCH_PRETRAINED_BIGGAN_CACHE = os.getenv('PYTORCH_PRETRAINED_BIGGAN_CACHE',
-                                              os.path.join(os.path.expanduser("~"), '.pytorch_pretrained_biggan'))
+                                                os.path.join(os.path.expanduser("~"), '.pytorch_pretrained_biggan'))
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
-
 
 PRETRAINED_MODEL_ARCHIVE_MAP = {
     'biggan-deep-128': "https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-128-pytorch_model.bin",
@@ -51,6 +51,7 @@ PRETRAINED_CONFIG_ARCHIVE_MAP = {
 
 WEIGHTS_NAME = 'pytorch_model.bin'
 CONFIG_NAME = 'config.json'
+
 
 def url_to_filename(url, etag=None):
     """
@@ -181,7 +182,7 @@ def http_get(url, temp_file):
     total = int(content_length) if content_length is not None else None
     progress = tqdm(unit="B", total=total)
     for chunk in req.iter_content(chunk_size=1024):
-        if chunk: # filter out keep-alive new chunks
+        if chunk:  # filter out keep-alive new chunks
             progress.update(len(chunk))
             temp_file.write(chunk)
     progress.close()
@@ -264,11 +265,13 @@ def get_file_extension(path, dot=True, lower=True):
     ext = ext if dot else ext[1:]
     return ext.lower() if lower else ext
 
+
 class BigGANConfig(object):
     """ Configuration class to store the configuration of a `BigGAN`. 
         Defaults are for the 128x128 model.
         layers tuple are (up-sample in the layer ?, input channels, output channels)
     """
+
     def __init__(self,
                  output_dim=128,
                  z_dim=128,
@@ -326,55 +329,61 @@ class BigGANConfig(object):
         """Serializes this instance to a JSON string."""
         return json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n"
 
+
 def snconv2d(eps=1e-12, **kwargs):
     return nn.utils.spectral_norm(nn.Conv2d(**kwargs), eps=eps)
+
 
 def snlinear(eps=1e-12, **kwargs):
     return nn.utils.spectral_norm(nn.Linear(**kwargs), eps=eps)
 
+
 def sn_embedding(eps=1e-12, **kwargs):
     return nn.utils.spectral_norm(nn.Embedding(**kwargs), eps=eps)
 
+
 class SelfAttn(nn.Module):
     """ Self attention Layer"""
+
     def __init__(self, in_channels, eps=1e-12):
         super(SelfAttn, self).__init__()
         self.in_channels = in_channels
-        self.snconv1x1_theta = snconv2d(in_channels=in_channels, out_channels=in_channels//8,
+        self.snconv1x1_theta = snconv2d(in_channels=in_channels, out_channels=in_channels // 8,
                                         kernel_size=1, bias=False, eps=eps)
-        self.snconv1x1_phi = snconv2d(in_channels=in_channels, out_channels=in_channels//8,
+        self.snconv1x1_phi = snconv2d(in_channels=in_channels, out_channels=in_channels // 8,
                                       kernel_size=1, bias=False, eps=eps)
-        self.snconv1x1_g = snconv2d(in_channels=in_channels, out_channels=in_channels//2,
+        self.snconv1x1_g = snconv2d(in_channels=in_channels, out_channels=in_channels // 2,
                                     kernel_size=1, bias=False, eps=eps)
-        self.snconv1x1_o_conv = snconv2d(in_channels=in_channels//2, out_channels=in_channels,
+        self.snconv1x1_o_conv = snconv2d(in_channels=in_channels // 2, out_channels=in_channels,
                                          kernel_size=1, bias=False, eps=eps)
         self.maxpool = nn.MaxPool2d(2, stride=2, padding=0)
-        self.softmax  = nn.Softmax(dim=-1)
+        self.softmax = nn.Softmax(dim=-1)
         self.gamma = nn.Parameter(torch.zeros(1))
 
     def forward(self, x):
         _, ch, h, w = x.size()
         # Theta path
         theta = self.snconv1x1_theta(x)
-        theta = theta.view(-1, ch//8, h*w)
+        theta = theta.view(-1, ch // 8, h * w)
         # Phi path
         phi = self.snconv1x1_phi(x)
         phi = self.maxpool(phi)
-        phi = phi.view(-1, ch//8, h*w//4)
+        phi = phi.view(-1, ch // 8, h * w // 4)
         # Attn map
         attn = torch.bmm(theta.permute(0, 2, 1), phi)
         attn = self.softmax(attn)
         # g path
         g = self.snconv1x1_g(x)
         g = self.maxpool(g)
-        g = g.view(-1, ch//2, h*w//4)
+        g = g.view(-1, ch // 2, h * w // 4)
         # Attn_g - o_conv
         attn_g = torch.bmm(g, attn.permute(0, 2, 1))
-        attn_g = attn_g.view(-1, ch//2, h, w)
+        attn_g = attn_g.view(-1, ch // 2, h, w)
         attn_g = self.snconv1x1_o_conv(attn_g)
         # Out
-        out = x + self.gamma*attn_g
+        out = x + self.gamma * attn_g
         return out
+
 
 class BigGANBatchNorm(nn.Module):
     """ This is a batch norm module that can handle conditional input and can be provided with pre-computed
@@ -383,6 +392,7 @@ class BigGANBatchNorm(nn.Module):
         batched weights (pytorch 1.0.1). We computate batch_norm our-self without updating running means and variances.
         If you want to train this model you should add running means and variance computation logic.
     """
+
     def __init__(self, num_features, condition_vector_dim=None, n_stats=51, eps=1e-4, conditional=True):
         super(BigGANBatchNorm, self).__init__()
         self.num_features = num_features
@@ -426,6 +436,7 @@ class BigGANBatchNorm(nn.Module):
                                training=False, momentum=0.0, eps=self.eps)
 
         return out
+
 
 class GenBlock(nn.Module):
     def __init__(self, in_size, out_size, condition_vector_dim, reduction_factor=4, up_sample=False,
@@ -479,6 +490,7 @@ class GenBlock(nn.Module):
         out = x + x0
         return out
 
+
 class Generator(nn.Module):
     def __init__(self, config):
         super(Generator, self).__init__()
@@ -492,9 +504,9 @@ class Generator(nn.Module):
         layers = []
         for i, layer in enumerate(config.layers):
             if i == config.attention_layer_position:
-                layers.append(SelfAttn(ch*layer[1], eps=config.eps))
-            layers.append(GenBlock(ch*layer[1],
-                                   ch*layer[2],
+                layers.append(SelfAttn(ch * layer[1], eps=config.eps))
+            layers.append(GenBlock(ch * layer[1],
+                                   ch * layer[2],
                                    condition_vector_dim,
                                    up_sample=layer[0],
                                    n_stats=config.n_stats,
@@ -517,7 +529,7 @@ class Generator(nn.Module):
 
         for i, layer in enumerate(self.layers):
             if isinstance(layer, GenBlock):
-                z = layer(z, cond_vector[i+1].unsqueeze(0), truncation)
+                z = layer(z, cond_vector[i + 1].unsqueeze(0), truncation)
                 # z = layer(z, cond_vector[].unsqueeze(0), truncation)
             else:
                 z = layer(z)
@@ -528,6 +540,7 @@ class Generator(nn.Module):
         z = z[:, :3, ...]
         z = self.tanh(z)
         return z
+
 
 class BigGAN(nn.Module):
     """BigGAN Generator."""
@@ -547,7 +560,7 @@ class BigGAN(nn.Module):
         except EnvironmentError:
             logger.error("Wrong model name, should be a valid path to a folder containing "
                          "a {} file and a {} file or a model name in {}".format(
-                         WEIGHTS_NAME, CONFIG_NAME, PRETRAINED_MODEL_ARCHIVE_MAP.keys()))
+                WEIGHTS_NAME, CONFIG_NAME, PRETRAINED_MODEL_ARCHIVE_MAP.keys()))
             raise
 
         logger.info("loading model {} from cache at {}".format(pretrained_model_name_or_path, resolved_model_file))
@@ -576,6 +589,7 @@ class BigGAN(nn.Module):
 
         z = self.generator(cond_vector, truncation)
         return z
+
 
 def one_hot_from_int(int_or_list, batch_size=1):
     """ Create a one-hot vector from a class index or a list of class indices.
