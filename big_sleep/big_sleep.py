@@ -190,12 +190,15 @@ class BigSleep(nn.Module):
         into = normalize_image(into)
 
         image_embed = perceptor.encode_image(into)
-        for phrase in max_text_tokenized:
-            current_embed = perceptor.encode_text(phrase.cuda())
-            phrase_loss = self.loss_coef * torch.cosine_similarity(current_embed, image_embed, dim=-1).mean()
-            phrases_loss.append(phrase_loss)
-        total_phrase_loss = torch.sum(phrases_loss)
-        return total_phrase_loss
+
+        phrases_loss = 0.
+        for idx, phrase in enumerate(max_text_tokenized):
+            current_embed = perceptor.encode_text(phrase)
+            if idx is 0:
+                phrase_loss = self.loss_coef * torch.cosine_similarity(current_embed, image_embed, dim=-1).mean()
+                continue
+            phrase_loss = phrase_loss + self.loss_coef * torch.cosine_similarity(current_embed, image_embed, dim=-1).mean()
+        return phrase_loss / float(len(max_text_tokenized))
 
 
 def split_and_tokenize_texts(max_phrases: str, min_phrases: str = None):  # Tokenize phrase/s, delimited by a single `\`
@@ -204,15 +207,8 @@ def split_and_tokenize_texts(max_phrases: str, min_phrases: str = None):  # Toke
         for prompt in max_phrases.split("\\"):
             if exists(prompt):
                 max_tokenized.append(tokenize(f'''{prompt}'''))
-        return max_tokenized, None  # todo CHANGE ME
-    return tokenize(f'''{max_phrases}'''), None  # TODO change me
-    #TODO put this back
-    # if exists(min_phrases):
-    #     min_tokenized = []
-    #     for prompt in min_phrases.split("\\"):
-    #         if exists(prompt):
-    #             min_tokenized.append(tokenize(f'''{prompt}'''))
-    #     return max_tokenized, min_tokenized
+        return max_tokenized # todo CHANGE ME
+    return tokenize(f'''{max_phrases}''') # TODO change me
 
 
 class Imagine(nn.Module):
@@ -300,18 +296,15 @@ class Imagine(nn.Module):
         self.optimizer = Adam(self.model.model.latents.parameters(), self.lr)
 
     def train_step(self, epoch, i, pbar=None):
-        print(f"epoch: {epoch}, i: {i}")
-        total_loss = 0
         losses = []
         for loss in self.model(self.text_max_tokenized, self.text_min_tokenized):
             print(loss)
             losses.append(loss)
-        loss = losses / self.gradient_accumulate_every
-        total_loss += loss
+        loss = losses
         loss.backward()
         self.optimizer.step()
         self.optimizer.zero_grad()
-        return total_loss
+        return loss
 
     def forward(self):
         print(f'Imagining "{self.text}" from the depths of my weights...')
