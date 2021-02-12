@@ -3,7 +3,6 @@ import torch.nn.functional as F
 from torch import nn
 from torch.optim import Adam
 
-import torchvision
 from torchvision.utils import save_image
 
 import os
@@ -13,12 +12,10 @@ import signal
 from datetime import datetime
 from pathlib import Path
 from tqdm import tqdm, trange
-from collections import namedtuple
 
 from big_sleep.biggan import BigGAN
 from big_sleep.clip import load, tokenize, normalize_image
 
-from einops import rearrange
 
 from .resample import resample
 
@@ -166,7 +163,7 @@ class BigSleep(nn.Module):
     def reset(self):
         self.model.init_latents()
 
-    def forward(self, text, return_loss = True):
+    def forward(self, max_text_tokenized: [], min_text_tokenized: [], return_loss=True):
         width, num_cutouts = self.image_size, self.num_cutouts
 
         out = self.model()
@@ -190,35 +187,53 @@ class BigSleep(nn.Module):
         into = normalize_image(into)
 
         image_embed = perceptor.encode_image(into)
-        text_embed = perceptor.encode_text(text)
+        text_embeds = []
+        for tokenized in max_text_tokenized:
+            text_embed = perceptor.encode_text(tokenized.cuda()).detach().clone()
+            text_embeds.append(text_embed)
+        if min_text_tokenized is not None:
+            min_text_embeds = []
+            for tokenized in min_text_tokenized:
+                text_embed = perceptor.encode_text(tokenized.cuda()).detach().clone()
+                min_text_embeds.append(text_embed)
 
         latents, soft_one_hot_classes = self.model.latents()
         num_latents = latents.shape[0]
         latent_thres = self.model.latents.thresh_lat
 
-        lat_loss =  torch.abs(1 - torch.std(latents, dim=1)).mean() + \
-                    torch.abs(torch.mean(latents)).mean() + \
-                    4 * torch.max(torch.square(latents).mean(), latent_thres)
+        latent_loss = torch.abs(1 - torch.std(latents, dim=1)).mean() + \
+                   torch.abs(torch.mean(latents)).mean() + \
+                   4 * torch.max(torch.square(latents).mean(), latent_thres)
 
-        for array in latents:
-            mean = torch.mean(array)
-            diffs = array - mean
+        for latent_arr in latents:
+            mean = torch.mean(latent_arr)
+            diffs = latent_arr - mean
             var = torch.mean(torch.pow(diffs, 2.0))
             std = torch.pow(var, 0.5)
             zscores = diffs / std
             skews = torch.mean(torch.pow(zscores, 3.0))
             kurtoses = torch.mean(torch.pow(zscores, 4.0)) - 3.0
 
-        lat_loss = lat_loss + torch.abs(kurtoses) / num_latents + torch.abs(skews) / num_latents
-        cls_loss = ((50 * torch.topk(soft_one_hot_classes, largest = False, dim = 1, k = 999)[0]) ** 2).mean()
+        latent_loss = latent_loss + torch.abs(kurtoses) / num_latents + torch.abs(skews) / num_latents
+        cls_loss = ((50 * torch.topk(soft_one_hot_classes, largest=False, dim=1, k=999)[0]) ** 2).mean()
 
-        sim_loss = -self.loss_coef * torch.cosine_similarity(text_embed, image_embed, dim = -1).mean()
-        return (lat_loss, cls_loss, sim_loss)
+        results = []
+        for text_embed in text_embeds:
+            results.append(self.loss_coef * torch.cosine_similarity(text_embed, image_embed, dim=-1).mean())
+        if min_text_embeds is not None:
+            for text_embed in min_text_embeds:
+                results.append(-self.loss_coef * torch.cosine_similarity(text_embed, image_embed, dim=-1).mean())
+        results = sum(results)
+        return latent_loss, cls_loss, results
+
+
+
 
 class Imagine(nn.Module):
     def __init__(
         self,
         text,
+        penalty_text,
         *,
         lr = .07,
         image_size = 512,
@@ -277,7 +292,10 @@ class Imagine(nn.Module):
         self.open_folder = open_folder
         self.total_image_updates = (self.epochs * self.iterations) / self.save_every
 
+        text_max_tokenized, text_min_tokenized = self.split_and_tokenize_texts(text, penalty_text)
         self.set_text(text)
+        self.text_min_tokenized = text_min_tokenized
+        self.text_max_tokenized = text_max_tokenized
 
     def set_text(self, text):
         self.text = text
@@ -287,7 +305,24 @@ class Imagine(nn.Module):
 
         self.textpath = textpath
         self.filename = Path(f'./{textpath}.png')
-        self.encoded_text = tokenize(text).cuda()
+        #  TODO allow user to set both max and min here
+        self.text_max_tokenized, _ = self.split_and_tokenize_texts(text)
+
+    def split_and_tokenize_texts(self, text_to_max: str, text_to_min: str = None):
+        texts_to_max_tokenized = []
+        if "\\" in text_to_max:
+            for prompt in text_to_max.split("\\"):
+                texts_to_max_tokenized.append(tokenize(f'''{prompt}'''))
+        else:
+            texts_to_max_tokenized = tokenize(text_to_max)
+        texts_to_min_tokenized = []
+        if text_to_min is not None:
+            if "\\" in text_to_max:
+                for prompt in text_to_min.split("\\"):
+                    texts_to_min_tokenized.append(tokenize(f'''{prompt}'''))
+            else:
+                texts_to_max_tokenized = tokenize(text_to_min)
+        return texts_to_max_tokenized, texts_to_min_tokenized
 
     def reset(self):
         self.model.reset()
@@ -298,7 +333,10 @@ class Imagine(nn.Module):
         total_loss = 0
 
         for _ in range(self.gradient_accumulate_every):
-            losses = self.model(self.encoded_text)
+            if self.text_min_tokenized is None:
+                losses = self.model(self.text_max_tokenized)
+            else:
+                losses = self.model(self.text_max_tokenized, self.text_min_tokenized)
             loss = sum(losses) / self.gradient_accumulate_every
             total_loss += loss
             loss.backward()
@@ -332,7 +370,7 @@ class Imagine(nn.Module):
     def forward(self):
         print(f'Imagining "{self.text}" from the depths of my weights...')
 
-        self.model(self.encoded_text) # one warmup step due to issue with CLIP and CUDA
+        self.model(self.text_max_tokenized, self.text_min_tokenized)  # one warmup step due to issue with CLIP and CUDA
 
         if self.open_folder:
             open_folder('./')
