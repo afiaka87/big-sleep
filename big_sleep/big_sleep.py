@@ -300,7 +300,7 @@ class Imagine(nn.Module):
         self.optimizer = Adam(self.model.model.latents.parameters(), self.lr)
 
     def train_step(self, epoch, i, pbar=None):
-        print(f"{epoch: {epoch}, i: {i}}")
+        print(f"epoch: {epoch}, i: {i}")
         total_loss = 0
         losses = []
         for loss in self.model(self.text_max_tokenized, self.text_min_tokenized):
