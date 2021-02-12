@@ -164,12 +164,12 @@ class BigSleep(nn.Module):
             image_size=image_size,
             max_classes=max_classes,
             class_temperature=class_temperature
-        ).cuda()
+        )
 
     def reset(self):
         self.model.init_latents()
 
-    def forward(self, max_text_tokenized, min_text_tokenized: str = None, return_loss=True):
+    def forward(self, max_text_tokenized, return_loss=True):
         width, num_cutouts = self.image_size, self.num_cutouts
         out = self.model()
         if not return_loss:
@@ -194,19 +194,19 @@ class BigSleep(nn.Module):
         phrases_loss = 0.
         for idx, phrase in enumerate(max_text_tokenized):
             current_embed = perceptor.encode_text(phrase)
-            if idx is 0:
+            if idx == 0:
                 phrase_loss = self.loss_coef * torch.cosine_similarity(current_embed, image_embed, dim=-1).mean()
                 continue
             phrase_loss = phrase_loss + self.loss_coef * torch.cosine_similarity(current_embed, image_embed, dim=-1).mean()
         return phrase_loss / float(len(max_text_tokenized))
 
 
-def split_and_tokenize_texts(max_phrases: str, min_phrases: str = None):  # Tokenize phrase/s, delimited by a single `\`
+def split_and_tokenize_texts(max_phrases: str):  # Tokenize phrase/s, delimited by a single `\`
     max_tokenized = []
     if "\\" in max_phrases:
         for prompt in max_phrases.split("\\"):
             if exists(prompt):
-                max_tokenized.append(tokenize(f'''{prompt}'''))
+                max_tokenized.append(tokenize(f'''{prompt}''').cuda())
         return max_tokenized # todo CHANGE ME
     return tokenize(f'''{max_phrases}''') # TODO change me
 
@@ -215,7 +215,6 @@ class Imagine(nn.Module):
     def __init__(
             self,
             text,
-            penalty_text: str = None,
             *,
             lr=.07,
             image_size=512,
@@ -274,21 +273,18 @@ class Imagine(nn.Module):
         self.open_folder = open_folder
         self.total_image_updates = (self.epochs * self.iterations) / self.save_every
 
-        text_max_tokenized, text_min_tokenized = split_and_tokenize_texts(text, penalty_text)
+        # Set text for the first time to tokenize it as a CLIP encoding.
         self.set_text(text)
-        self.text_min_tokenized = text_min_tokenized
-        self.text_max_tokenized = text_max_tokenized
 
     def set_text(self, text):
         self.text = text
-        textpath = self.text.replace(' ', '_')[:255]
+        textpath = self.text.replace(' \\', '_')[:255]
         if self.save_date_time:
             textpath = datetime.now().strftime("%y%m%d-%H%M%S-") + textpath
 
         self.textpath = textpath
         self.filename = Path(f'./{textpath}.png')
-        #  TODO allow user to set both max and min here
-        self.text_max_tokenized, _ = split_and_tokenize_texts(text)
+        self.encoded_phrases = split_and_tokenize_texts(text)
 
     def reset(self):
         self.model.reset()
@@ -296,15 +292,19 @@ class Imagine(nn.Module):
         self.optimizer = Adam(self.model.model.latents.parameters(), self.lr)
 
     def train_step(self, epoch, i, pbar=None):
-        losses = []
-        for loss in self.model(self.text_max_tokenized, self.text_min_tokenized):
-            print(loss)
-            losses.append(loss)
-        loss = losses
-        loss.backward()
+        total_loss = 0
+
+        for encoded_text in self.encoded_phrases:
+            for _ in range(self.gradient_accumulate_every):
+                losses = self.model(encoded_text)
+                loss = sum(losses) / self.gradient_accumulate_every
+                total_loss += loss
+                loss.backward()
+
         self.optimizer.step()
         self.optimizer.zero_grad()
-        return loss
+        tqdm.write(f"Epoch: {epoch}, iter: {i}, Loss: {total_loss}")
+        return total_loss
 
     def forward(self):
         print(f'Imagining "{self.text}" from the depths of my weights...')
