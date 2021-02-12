@@ -191,12 +191,9 @@ class BigSleep(nn.Module):
 
         image_embed = perceptor.encode_image(into)
 
-        phrases_loss = 0.
+        phrase_loss = 0.
         for idx, phrase in enumerate(max_text_tokenized):
             current_embed = perceptor.encode_text(phrase)
-            if idx == 0:
-                phrase_loss = self.loss_coef * torch.cosine_similarity(current_embed, image_embed, dim=-1).mean()
-                continue
             phrase_loss = phrase_loss + self.loss_coef * torch.cosine_similarity(current_embed, image_embed, dim=-1).mean()
         return phrase_loss / float(len(max_text_tokenized))
 
@@ -208,7 +205,7 @@ def split_and_tokenize_texts(max_phrases: str):  # Tokenize phrase/s, delimited 
             if exists(prompt):
                 max_tokenized.append(tokenize(f'''{prompt}''').cuda())
         return max_tokenized # todo CHANGE ME
-    return tokenize(f'''{max_phrases}''') # TODO change me
+    return tokenize(f'''{max_phrases}''').cuda() # TODO change me
 
 
 class Imagine(nn.Module):
