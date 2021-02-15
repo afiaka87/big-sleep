@@ -75,13 +75,13 @@ Images will be saved to wherever the command is invoked
 You can invoke this in code with
 
 ```python
-from big_sleep import Imagine
+from big_sleep import Dream
 
 dream = Imagine(
-    text = "fire in the sky",
-    lr = 5e-2,
-    save_every = 25,
-    save_progress = True
+    text="fire in the sky",
+    lr=5e-2,
+    save_every=25,
+    save_progress=True
 )
 
 dream()

@@ -1,0 +1,12 @@
+setuptools~=52.0.0
+fire~=0.4.0
+ftfy~=5.9
+regex~=2020.11.13
+torch~=1.7.1+cu110
+Pillow~=8.1.0
+torchvision~=0.8.2+cu110
+tqdm~=4.56.2
+boto3~=1.17.7
+requests~=2.25.1
+botocore~=1.20.7
+Flask~=1.1.2
