@@ -1,16 +1,18 @@
-import fire
 import random as rnd
-from big_sleep import Imagine, version
-from pathlib import Path
+
+import fire
+
+from big_sleep import Imagine
 from .version import __version__;
 
+
 def train(
-    text,
-    lr = .07,
-    image_size = 512,
-    gradient_accumulate_every = 1,
-    epochs = 20,
-    iterations = 1050,
+        text,
+        lr=.07,
+        image_size=512,
+        gradient_accumulate_every=1,
+        epochs=20,
+        iterations=1050,
     save_every = 50,
     overwrite = False,
     save_progress = False,

@@ -1,34 +1,29 @@
-import torch
-from torch import nn
-import torch.nn.functional as F
-from torchvision.transforms import Compose, Resize, CenterCrop, ToTensor, Normalize
-
 import hashlib
+import html
 import os
 import urllib
 import warnings
-
-from PIL import Image
-from tqdm import tqdm
-from pathlib import Path
-
-import html
-import os
 from functools import lru_cache
-from collections import OrderedDict
+from pathlib import Path
 
 import ftfy
 import regex as re
+import torch
+from PIL import Image
+from torchvision.transforms import Compose, Resize, CenterCrop, ToTensor, Normalize
+from tqdm import tqdm
 
 MODEL_PATH = "https://openaipublic.azureedge.net/clip/models/40d365715913c9da98579312b702a82c18be219cc2a73407c4526f58eba950af/ViT-B-32.pt"
+
 
 @lru_cache()
 def default_bpe():
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data/bpe_simple_vocab_16e6.txt")
 
+
 @lru_cache()
 def bytes_to_unicode():
-    bs = list(range(ord("!"), ord("~")+1))+list(range(ord("¡"), ord("¬")+1))+list(range(ord("®"), ord("ÿ")+1))
+    bs = list(range(ord("!"), ord("~") + 1)) + list(range(ord("¡"), ord("¬") + 1)) + list(range(ord("®"), ord("ÿ") + 1))
     cs = bs[:]
     n = 0
     for b in range(2**8):

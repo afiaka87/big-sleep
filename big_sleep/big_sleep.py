@@ -1,25 +1,19 @@
+import os
+import signal
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+
 import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.optim import Adam
-
-import torchvision
 from torchvision.utils import save_image
-
-import os
-import sys
-import subprocess
-import signal
-from datetime import datetime
-from pathlib import Path
 from tqdm import tqdm, trange
-from collections import namedtuple
 
 from big_sleep.biggan import BigGAN
 from big_sleep.clip import load, tokenize, normalize_image
-
-from einops import rearrange
-
 from .resample import resample
 
 assert torch.cuda.is_available(), 'CUDA must be available in order to use Deep Daze'
