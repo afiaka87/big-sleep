@@ -2,7 +2,8 @@ import random as rnd
 
 import fire
 
-from big_sleep import Imagine
+import big_sleep.util
+from big_sleep import Dream
 from .version import __version__;
 
 
@@ -32,7 +33,7 @@ def train(
     if random:
         seed = rnd.randint(0, 1e6)
 
-    imagine = Imagine(
+    dream = Dream(
         text,
         lr = lr,
         image_size = image_size,
@@ -52,12 +53,12 @@ def train(
         experimental_resample = experimental_resample,
     )
 
-    if not overwrite and imagine.filename.exists():
+    if not overwrite and big_sleep.util.exists():
         answer = input('Imagined image already exists, do you want to overwrite? (y/n) ').lower()
         if answer not in ('yes', 'y'):
             exit()
 
-    imagine()
+    dream()
 
 def main():
     fire.Fire(train)
