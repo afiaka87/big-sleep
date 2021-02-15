@@ -113,7 +113,7 @@ class Latents(torch.nn.Module):
         return self.normu, classes
 
 
-class Model(nn.Module):
+class BigGanModel(nn.Module):
     def __init__(
             self,
             image_size,
@@ -161,16 +161,16 @@ class BigSleep(nn.Module):
 
         self.interpolation_settings = {'mode': 'bilinear', 'align_corners': False} if bilinear else {'mode': 'nearest'}
 
-        self.model = Model(
+        self.model = BigGanModel(
             image_size=image_size,
             max_classes=max_classes,
             class_temperature=class_temperature
-        )
+        ).cuda(0)
         if torch.cuda.device_count() > 1:
             self.model = nn.DataParallel(self.model)
 
     def reset(self):
-        self.model.init_latents()
+        self.model.module.init_latents()
 
     def forward(self, text_embed, return_loss=True):
         width, num_cutouts = self.image_size, self.num_cutouts
@@ -197,9 +197,9 @@ class BigSleep(nn.Module):
 
         image_embed = perceptor.encode_image(into)
 
-        latents, soft_one_hot_classes = self.model.latents()
+        latents, soft_one_hot_classes = self.model.module.latents()
         num_latents = latents.shape[0]
-        latent_thres = self.model.latents.thresh_lat
+        latent_thres = self.model.module.latents.thresh_lat
 
         lat_loss = torch.abs(1 - torch.std(latents, dim=1)).mean() + \
                    torch.abs(torch.mean(latents, dim=1)).mean() + \
@@ -266,14 +266,14 @@ class Imagine(nn.Module):
             max_classes=max_classes,
             class_temperature=class_temperature,
             experimental_resample=experimental_resample,
-        ).cuda()
+        ).cuda(0)
         if torch.cuda.device_count() > 1:
             model = nn.DataParallel(model)
 
         self.model = model
 
         self.lr = lr
-        self.optimizer = Adam(model.model.latents.parameters(), lr)
+        self.optimizer = Adam(model.module.model.module.latents.parameters(), lr)
         self.gradient_accumulate_every = gradient_accumulate_every
         self.save_every = save_every
 

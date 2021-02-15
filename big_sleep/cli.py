@@ -1,10 +1,9 @@
 import random as rnd
 
 import fire
-import torch
-from torch import nn
+
 from big_sleep import Imagine
-from .version import __version__
+from .version import __version__;
 
 
 def train(
@@ -51,9 +50,7 @@ def train(
         save_date_time = save_date_time,
         save_best = save_best,
         experimental_resample = experimental_resample,
-    ).cuda(0)
-    if torch.cuda.device_count() > 1:
-        imagine = nn.DataParallel(imagine)
+    )
 
     if not overwrite and imagine.filename.exists():
         answer = input('Imagined image already exists, do you want to overwrite? (y/n) ').lower()
