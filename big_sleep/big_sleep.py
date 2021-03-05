@@ -202,9 +202,9 @@ class BigSleep(nn.Module):
             offsety = torch.randint(0, width - size, ())
             apper = out[:, :, offsetx:offsetx + size, offsety:offsety + size]
             if (self.experimental_resample):
-                apper = resample(apper, (224, 224))
+                apper = resample(apper, (288, 288))
             else:
-                apper = F.interpolate(apper, (224, 224), **self.interpolation_settings)
+                apper = F.interpolate(apper, (288, 288), **self.interpolation_settings)
             pieces.append(apper)
 
         into = torch.cat(pieces)
@@ -252,7 +252,7 @@ class Imagine(nn.Module):
         image_size = 512,
         gradient_accumulate_every = 1,
         save_every = 50,
-        epochs = 20,
+        epochs = 1,
         iterations = 1050,
         save_progress = False,
         bilinear = False,
