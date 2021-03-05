@@ -20,7 +20,7 @@ from collections import OrderedDict
 import ftfy
 import regex as re
 
-MODEL_PATH = "https://openaipublic.azureedge.net/clip/models/40d365715913c9da98579312b702a82c18be219cc2a73407c4526f58eba950af/ViT-B-32.pt"
+MODEL_PATH = "https://openaipublic.azureedge.net/clip/models/7e526bd135e493cef0776de27d5f42653e6b4c8bf9e0f653bb11773263205fdd/RN50x4.pt"
 
 @lru_cache()
 def default_bpe():
